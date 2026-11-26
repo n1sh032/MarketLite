@@ -32,7 +32,7 @@ The example strategy is a 20-day/50-day simple moving-average crossover on compl
 
 Risk assessment is a separate required function and checks symbol allow-list, quantity, notional, position count, allocation, daily loss, stale data, and duplicate orders. Risk decisions and control actions are written to SQLite. SQLite uses WAL mode; `marketpilot.sqlite3` is local state and is excluded from Git. Analysis is idempotent by symbol and input timestamp. A unique client order ID and broker order lookup help prevent duplicate submissions after a restart. Ambiguous order timeouts are never retried blindly.
 
-Configuration: `MARKETPILOT_MODE` must be `paper`; `MARKETPILOT_SYMBOLS` selects the allow-listed universe; `MARKETPILOT_DATABASE` selects the local database path; `MARKETPILOT_PAPER_ORDERS_ENABLED` defaults to false. Symbol and quantity checks reject malformed input.
+Configuration lives in the ignored local `.env` file or process environment. `MARKETPILOT_MODE` must be `paper`; `MARKETPILOT_SYMBOLS` sets the allow-listed universe; `MARKETPILOT_PAPER_ORDERS_ENABLED` defaults to false. The `MARKETPILOT_MAX_ORDER_QUANTITY`, `MARKETPILOT_MAX_ORDER_NOTIONAL`, `MARKETPILOT_MAX_OPEN_POSITIONS`, `MARKETPILOT_MAX_SYMBOL_ALLOCATION`, `MARKETPILOT_MAX_DAILY_LOSS`, and `MARKETPILOT_MAX_DATA_AGE_DAYS` values configure the independent risk limits. Invalid or non-finite limits fail at startup.
 
 ## Project layout
 
@@ -40,11 +40,11 @@ Configuration: `MARKETPILOT_MODE` must be `paper`; `MARKETPILOT_SYMBOLS` selects
 - `strategy.py`: pure moving-average signal calculation
 - `risk.py`: independent order approval decision
 - `broker.py`: demo and fixed-origin Alpaca paper adapters
-- `storage.py`: SQLite signals, orders, settings, and audit events
+- `storage.py`: SQLite signals, order intents, broker reconciliation, and audit events
 - `app.py`: FastAPI endpoints, reconciliation, and lifecycle
 - `static/`: responsive local dashboard
 - `tests/`: focused strategy, risk, and storage tests
 
 ## Current limits
 
-The dashboard uses polling rather than a streaming feed. An in-process scheduler runs analysis at 16:15 America/New_York on weekdays; it does not submit orders. It does not yet load an exchange holiday calendar, so a holiday run may reuse the latest available completed bar. You can also use Run Analysis manually. The initial version supports daily bars and a small configured universe. The account/positions are refreshed from Alpaca when the dashboard loads; no account identifiers or secrets are displayed or persisted. Automated tests have been added but have not yet been run in this GitHub-only editing session. Before enabling even paper order submission, install dependencies, run the test suite, inspect the paper account and API permissions, and validate reconciliation against a paper account. There is no live trading capability.
+The dashboard uses polling rather than a streaming feed. An in-process scheduler runs analysis at 16:15 America/New_York on weekdays; it does not submit orders. It does not yet load an exchange holiday calendar, so a holiday run may reuse the latest available completed bar. You can also use Run Analysis manually. The initial version supports daily bars and a small configured universe. Account and positions are refreshed from Alpaca when the dashboard loads; broker responses refresh any matching local order intents. No account identifiers or secrets are displayed or persisted. The automated suite has been run locally; live Alpaca behavior has not been verified. Before enabling paper orders, inspect the paper account and API permissions and validate reconciliation against that paper account. There is no live trading capability.
