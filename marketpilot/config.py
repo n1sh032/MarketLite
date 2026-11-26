@@ -22,7 +22,8 @@ def load_settings() -> Settings:
     symbols = tuple(s.strip().upper() for s in os.getenv("MARKETPILOT_SYMBOLS", "AAPL,MSFT,SPY").split(",") if s.strip())
     if not symbols or any(not s.isascii() or not s.replace(".", "").replace("-", "").isalnum() or len(s) > 10 for s in symbols):
         raise ValueError("Invalid symbols configuration")
-    key, secret = os.getenv("ALPACA_PAPER_API_KEY"), os.getenv("ALPACA_PAPER_API_SECRET")
+    key = os.getenv("ALPACA_PAPER_API_KEY", "").strip() or None
+    secret = os.getenv("ALPACA_PAPER_API_SECRET", "").strip() or None
     if bool(key) != bool(secret):
         raise ValueError("Set both paper credential variables or neither")
     enabled = os.getenv("MARKETPILOT_PAPER_ORDERS_ENABLED", "false").lower() == "true"
