@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import httpx
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from .strategy import Bar
 
 PAPER_URL = "https://paper-api.alpaca.markets"
@@ -56,7 +57,10 @@ class AlpacaPaperBroker:
         return data
 
     def daily_bars(self, symbol: str, limit: int = 100) -> list[Bar]:
-        end = datetime.now(timezone.utc).date()
+        now_ny = datetime.now(ZoneInfo("America/New_York"))
+        market_date = now_ny.date()
+        # Include today's daily bar only after the regular session close.
+        end = market_date + timedelta(days=1) if now_ny.hour >= 16 else market_date
         start = end - timedelta(days=limit * 2)
         try:
             response = self.data_client.get(f"/v2/stocks/{symbol}/bars", params={"timeframe":"1Day","start":start.isoformat(),"end":end.isoformat(),"limit":limit,"adjustment":"split","feed":"iex"})
