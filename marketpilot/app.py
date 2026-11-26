@@ -30,8 +30,15 @@ risk_limits = RiskLimits(
     max_symbol_allocation=settings.max_symbol_allocation,
     max_daily_loss=settings.max_daily_loss,
 )
-state = {"status": "stopped", "paused": False, "emergency_stop": False, "last_run": None,
-         "last_data_refresh": None, "last_error": None, "broker_error": None,
+last_successful_run = store.latest_event_at("analysis_completed")
+if last_successful_run:
+    restored_time = datetime.fromisoformat(last_successful_run)
+    if restored_time.tzinfo is None:
+        restored_time = restored_time.replace(tzinfo=timezone.utc)
+    last_successful_run = restored_time.isoformat()
+state = {"status": "stopped", "paused": False, "emergency_stop": False,
+         "last_data_refresh": last_successful_run, "last_run": last_successful_run,
+         "last_error": None, "broker_error": None,
          "reconciled": isinstance(broker, DemoBroker)}
 run_lock = asyncio.Lock()
 

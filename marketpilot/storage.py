@@ -28,6 +28,13 @@ class Store:
             self.connection.execute("INSERT INTO audit(event,details) VALUES (?,?)", (event, json.dumps(details, default=str)))
             self.connection.commit()
 
+    def latest_event_at(self, event: str) -> str | None:
+        with self._lock:
+            row = self.connection.execute(
+                "SELECT created_at FROM audit WHERE event=? ORDER BY id DESC LIMIT 1", (event,)
+            ).fetchone()
+        return row["created_at"] if row else None
+
     def record_signal(self, signal: dict[str, Any]) -> None:
         with self._lock:
             self.connection.execute("INSERT OR IGNORE INTO signals(symbol,action,timestamp,payload) VALUES(?,?,?,?)", (signal["symbol"],signal["action"],signal["timestamp"],json.dumps(signal)))

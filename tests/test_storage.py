@@ -20,4 +20,6 @@ def test_duplicate_signal_and_order_are_idempotent(tmp_path):
     assert not store.has_open_order("AAPL")
     store.audit("risk_decision",{"approved":False})
     assert store.rows("audit")[0]["event"]=="risk_decision"
+    store.audit("analysis_completed",{"count":3})
+    assert store.latest_event_at("analysis_completed") is not None
     store.close()
