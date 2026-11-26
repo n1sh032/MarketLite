@@ -36,3 +36,9 @@ def test_sell_cannot_exceed_held_quantity():
     decision=assess(side="sell",quantity=2,held_quantity=1)
     assert not decision.approved
     assert "Sell quantity exceeds held shares" in decision.reasons
+
+
+def test_fractional_quantity_and_non_finite_price_fail_closed():
+    import math
+    decision=assess(quantity=1.5,price=math.nan)
+    assert not decision.approved
