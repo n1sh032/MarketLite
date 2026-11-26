@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,27 +15,46 @@ from .broker import AlpacaPaperBroker, BrokerError, DemoBroker
 from .config import load_settings
 from .data import demo_bars, validate_bars
 from .risk import RiskLimits, assess_order
-from .storage import Store
+from .storage import Store, TERMINAL_ORDER_STATUSES
 from .scheduler import next_run, run_daily
 from .strategy import moving_average_signal
 
 settings = load_settings()
 store = Store(settings.database)
 broker = AlpacaPaperBroker(settings.alpaca_key, settings.alpaca_secret) if settings.alpaca_key and settings.alpaca_secret else DemoBroker()
-state = {"status": "stopped", "paused": False, "emergency_stop": False, "last_run": None, "last_error": None, "reconciled": isinstance(broker, DemoBroker)}
+risk_limits = RiskLimits(
+    allowed_symbols=frozenset(settings.symbols),
+    max_quantity=settings.max_order_quantity,
+    max_notional=settings.max_order_notional,
+    max_positions=settings.max_open_positions,
+    max_symbol_allocation=settings.max_symbol_allocation,
+    max_daily_loss=settings.max_daily_loss,
+)
+state = {"status": "stopped", "paused": False, "emergency_stop": False, "last_run": None,
+         "last_data_refresh": None, "last_error": None, "broker_error": None,
+         "reconciled": isinstance(broker, DemoBroker)}
 run_lock = asyncio.Lock()
+
+
+def reconcile_paper_state():
+    account = broker.account()
+    positions = broker.positions()
+    orders = broker.orders()
+    if not isinstance(broker, DemoBroker):
+        refreshed = store.reconcile_orders(orders)
+        store.audit("broker_reconciled", {"mode": "paper", "orders_refreshed": refreshed})
+    state["reconciled"] = True
+    state["broker_error"] = None
+    return account, positions, orders
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not isinstance(broker, DemoBroker):
         try:
-            # Read broker state before any order endpoint can be enabled.
-            broker.account(); broker.positions(); broker.orders()
-            state["reconciled"] = True
-            store.audit("broker_reconciled", {"mode": "paper"})
+            reconcile_paper_state()
         except BrokerError as exc:
-            state["last_error"] = str(exc)
+            state["broker_error"] = str(exc)
             state["reconciled"] = False
     scheduler_task = asyncio.create_task(run_daily(scheduled_analysis), name="marketpilot-daily-analysis")
     state["next_scheduled_run"] = next_run().isoformat()
@@ -67,19 +87,29 @@ def home():
 @app.get("/api/dashboard")
 def dashboard():
     try:
-        account = broker.account()
-        positions = broker.positions()
-        orders = broker.orders()
+        account, positions, orders = reconcile_paper_state()
     except BrokerError as exc:
-        state["last_error"] = str(exc)
+        state["broker_error"] = str(exc)
+        state["reconciled"] = isinstance(broker, DemoBroker)
         account, positions, orders = None, [], store.rows("orders")
     local_orders = store.rows("orders")
     known = {o.get("client_order_id") for o in orders} if isinstance(orders, list) else set()
     visible_orders = orders + [o for o in local_orders if o.get("client_order_id") not in known] if isinstance(orders, list) else local_orders
+    try:
+        market_values = [float(position["market_value"]) for position in positions]
+        exposure = sum(abs(value) for value in market_values) if all(math.isfinite(value) for value in market_values) else None
+    except (KeyError, TypeError, ValueError):
+        exposure = None
     return {"paper": True, "demo": isinstance(broker, DemoBroker), "demo_label": getattr(broker, "label", None),
-            "account": account, "positions": positions, "signals": store.rows("signals"), "orders": visible_orders,
+            "account": account, "positions": positions, "signals": store.signals(), "orders": visible_orders,
+            "exposure": exposure,
             "audit": store.rows("audit", 30), "symbols": settings.symbols,
-            "limits": {"max_quantity": 10, "max_notional": 2000, "max_positions": 5, "max_daily_loss": 1000},
+            "limits": {"max_quantity": risk_limits.max_quantity,
+                       "max_notional": risk_limits.max_notional,
+                       "max_positions": risk_limits.max_positions,
+                       "max_symbol_allocation": risk_limits.max_symbol_allocation,
+                       "max_daily_loss": risk_limits.max_daily_loss,
+                       "max_data_age_days": settings.max_data_age_days},
             "state": state}
 
 
@@ -97,14 +127,16 @@ async def run_analysis(request: RunRequest):
         results = []
         try:
             for symbol in settings.symbols:
-                bars = demo_bars(symbol) if isinstance(broker, DemoBroker) else broker.daily_bars(symbol)
-                validate_bars(bars)
+                bars = demo_bars(symbol) if isinstance(broker, DemoBroker) else await asyncio.to_thread(broker.daily_bars, symbol)
+                validate_bars(bars, max_age_days=settings.max_data_age_days)
                 signal = moving_average_signal(bars)
                 payload = {**signal.__dict__, "timestamp": signal.timestamp.isoformat(), "data_source": "illustrative demo bars" if isinstance(broker, DemoBroker) else "Alpaca IEX daily bars"}
                 store.record_signal(payload)
                 item = {**payload, "risk": None, "order": None}
                 if request.submit_paper_orders and signal.action in {"buy", "sell"}:
-                    account = broker.account(); positions = broker.positions(); existing = broker.orders()
+                    account = await asyncio.to_thread(broker.account)
+                    positions = await asyncio.to_thread(broker.positions)
+                    existing = await asyncio.to_thread(broker.orders)
                     qty = 1
                     position = next((p for p in positions if p.get("symbol") == symbol), None)
                     market_value = abs(float(position.get("market_value", 0))) if position else 0.0
@@ -112,9 +144,14 @@ async def run_analysis(request: RunRequest):
                         raise ValueError("Broker account equity is incomplete; refusing paper order")
                     daily_pnl = float(account["equity"]) - float(account["last_equity"])
                     client_id = f"mp-{symbol}-{signal.timestamp:%Y%m%d}-{signal.action}"
-                    duplicate = store.has_order(client_id) or any(o.get("client_order_id") == client_id for o in existing)
+                    active_broker_order = any(
+                        str(order.get("symbol", "")).upper() == symbol
+                        and str(order.get("status", "unknown")).lower() not in TERMINAL_ORDER_STATUSES
+                        for order in existing
+                    )
+                    duplicate = store.has_order(client_id) or store.has_open_order(symbol) or active_broker_order
                     decision = assess_order(symbol=symbol, side=signal.action, quantity=qty, price=bars[-1].close,
-                        limits=RiskLimits(allowed_symbols=frozenset(settings.symbols)), open_positions=len(positions), current_symbol_value=market_value,
+                        limits=risk_limits, open_positions=len(positions), current_symbol_value=market_value,
                         equity=float(account["equity"]), daily_pnl=daily_pnl, duplicate=duplicate,
                         held_quantity=int(float(position.get("qty", 0))) if position else 0)
                     item["risk"] = {"approved": decision.approved, "reasons": decision.reasons}
@@ -122,14 +159,20 @@ async def run_analysis(request: RunRequest):
                     if decision.approved:
                         store.record_order(client_id,symbol,signal.action,qty,"submitting")
                         try:
-                            order = broker.submit_order(symbol=symbol,side=signal.action,quantity=qty,client_order_id=client_id)
+                            order = await asyncio.to_thread(
+                                broker.submit_order, symbol=symbol, side=signal.action,
+                                quantity=qty, client_order_id=client_id,
+                            )
                             store.record_order(client_id,symbol,signal.action,qty,str(order.get("status","accepted")),str(order.get("id","")),order)
                             item["order"] = order
                         except BrokerError as exc:
+                            if not exc.uncertain:
+                                store.record_order(client_id, symbol, signal.action, qty, "rejected", payload={"error": str(exc)})
                             store.audit("order_uncertain_or_rejected", {"client_order_id":client_id,"message":str(exc)})
                             state["last_error"] = str(exc)
                 results.append(item)
             state["last_run"] = datetime.now(timezone.utc).isoformat()
+            state["last_data_refresh"] = state["last_run"]
             state["status"] = "paused" if state["paused"] else "stopped"
             store.audit("analysis_completed", {"count":len(results)})
             return {"signals":results}

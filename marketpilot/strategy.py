@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+import math
 from typing import Sequence
 
 
@@ -36,8 +37,8 @@ def moving_average_signal(bars: Sequence[Bar], fast: int = 20, slow: int = 50) -
         return Signal(symbol, "hold", ordered[-1].timestamp, None, None,
                       f"Need {slow + 1} completed bars; received {len(ordered)}", fast, slow)
     closes = [b.close for b in ordered]
-    if any(price <= 0 for price in closes):
-        raise ValueError("Closing prices must be positive")
+    if any(not math.isfinite(price) or price <= 0 for price in closes):
+        raise ValueError("Closing prices must be positive and finite")
     fast_prev = sum(closes[-fast-1:-1]) / fast
     slow_prev = sum(closes[-slow-1:-1]) / slow
     fast_now = sum(closes[-fast:]) / fast

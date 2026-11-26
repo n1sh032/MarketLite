@@ -21,13 +21,15 @@ def demo_bars(symbol: str, count: int = 80) -> list[Bar]:
 def validate_bars(bars: list[Bar], *, max_age_days: int = 5, now: datetime | None = None) -> None:
     if not bars:
         raise ValueError("No market bars returned")
-    latest = max(bar.timestamp for bar in bars)
     now = now or datetime.now(timezone.utc)
-    if latest.tzinfo is None:
-        latest = latest.replace(tzinfo=timezone.utc)
+    now = now.replace(tzinfo=timezone.utc) if now.tzinfo is None else now.astimezone(timezone.utc)
+    timestamps = [bar.timestamp.replace(tzinfo=timezone.utc) if bar.timestamp.tzinfo is None else bar.timestamp.astimezone(timezone.utc) for bar in bars]
+    latest = max(timestamps)
+    if latest > now:
+        raise ValueError("Market data contains a future bar")
     if (now - latest).total_seconds() > max_age_days * 86400:
         raise ValueError("Market data is stale")
-    dates = [bar.timestamp.date() for bar in bars]
+    dates = [timestamp.date() for timestamp in timestamps]
     if len(dates) != len(set(dates)):
         raise ValueError("Duplicate daily bars returned")
     if any(not bar.complete or not math.isfinite(bar.close) or bar.close <= 0 for bar in bars):

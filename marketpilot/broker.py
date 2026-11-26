@@ -10,7 +10,9 @@ DATA_URL = "https://data.alpaca.markets"
 
 
 class BrokerError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, uncertain: bool = False):
+        super().__init__(message)
+        self.uncertain = uncertain
 
 
 class AlpacaPaperBroker:
@@ -94,9 +96,9 @@ class AlpacaPaperBroker:
             return response.json()
         except (httpx.TimeoutException, httpx.NetworkError):
             # Do not retry: broker acceptance may have happened before the timeout.
-            raise BrokerError("Order outcome is uncertain; reconcile by client order ID before retrying") from None
-        except httpx.HTTPStatusError:
-            raise BrokerError("Paper broker rejected the order") from None
+            raise BrokerError("Order outcome is uncertain; reconcile by client order ID before retrying", uncertain=True) from None
+        except httpx.HTTPStatusError as exc:
+            raise BrokerError(f"Paper broker rejected the order ({exc.response.status_code})") from None
 
     def close(self) -> None:
         self.client.close()
