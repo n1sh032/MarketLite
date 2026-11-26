@@ -8,6 +8,8 @@ venv/
 *.db
 *.sqlite3
 *.sqlite
+*-wal
+*-shm
 .pytest_cache/
 .coverage
 htmlcov/
