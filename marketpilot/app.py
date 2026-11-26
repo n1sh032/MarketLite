@@ -90,6 +90,7 @@ async def run_analysis(request: RunRequest):
         raise HTTPException(503, "Paper broker is not reconciled; order submission is disabled")
     async with run_lock:
         state["status"] = "running"
+        state["last_error"] = None
         results = []
         try:
             for symbol in settings.symbols:
@@ -125,7 +126,6 @@ async def run_analysis(request: RunRequest):
                 results.append(item)
             state["last_run"] = datetime.now(timezone.utc).isoformat()
             state["status"] = "paused" if state["paused"] else "stopped"
-            state["last_error"] = None
             store.audit("analysis_completed", {"count":len(results)})
             return {"signals":results}
         except (ValueError, BrokerError) as exc:
