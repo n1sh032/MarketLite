@@ -96,14 +96,14 @@ async def run_analysis(request: RunRequest):
                     position = next((p for p in positions if p.get("symbol") == symbol), None)
                     market_value = abs(float(position.get("market_value", 0))) if position else 0.0
                     daily_pnl = float(account.get("equity", 0)) - float(account.get("last_equity", account.get("equity", 0)))
-                    duplicate = any(o.get("client_order_id") == f"mp-{symbol}-{signal.timestamp:%Y%m%d}-{signal.action}" for o in existing)
+                    client_id = f"mp-{symbol}-{signal.timestamp:%Y%m%d}-{signal.action}"
+                    duplicate = store.has_order(client_id) or any(o.get("client_order_id") == client_id for o in existing)
                     decision = assess_order(symbol=symbol, side=signal.action, quantity=qty, price=bars[-1].close,
                         limits=RiskLimits(), open_positions=len(positions), current_symbol_value=market_value,
                         equity=float(account["equity"]), daily_pnl=daily_pnl, duplicate=duplicate)
                     item["risk"] = {"approved": decision.approved, "reasons": decision.reasons}
                     store.audit("risk_decision", {"symbol":symbol,"approved":decision.approved,"reasons":decision.reasons})
                     if decision.approved:
-                        client_id = f"mp-{symbol}-{signal.timestamp:%Y%m%d}-{signal.action}"
                         store.record_order(client_id,symbol,signal.action,qty,"submitting")
                         try:
                             order = broker.submit_order(symbol=symbol,side=signal.action,quantity=qty,client_order_id=client_id)
