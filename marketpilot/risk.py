@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import math
 import re
 
 _SYMBOL = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
@@ -30,17 +31,17 @@ def assess_order(*, symbol: str, side: str, quantity: int, price: float,
     if not _SYMBOL.fullmatch(symbol): reasons.append("Invalid symbol")
     if symbol not in limits.allowed_symbols: reasons.append("Symbol is not allow-listed")
     if side not in {"buy", "sell"}: reasons.append("Side must be buy or sell")
-    if isinstance(quantity, bool) or quantity <= 0: reasons.append("Quantity must be a positive integer")
+    if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity <= 0: reasons.append("Quantity must be a positive integer")
     if quantity > limits.max_quantity: reasons.append("Maximum order quantity exceeded")
-    if price <= 0: reasons.append("Price must be positive")
+    if not math.isfinite(price) or price <= 0: reasons.append("Price must be positive and finite")
     if quantity * price > limits.max_notional: reasons.append("Maximum order notional exceeded")
     if stale: reasons.append("Market data is stale or incomplete")
     if duplicate: reasons.append("Duplicate or conflicting order exists")
-    if daily_pnl <= -limits.max_daily_loss: reasons.append("Daily loss limit reached")
+    if not math.isfinite(daily_pnl) or daily_pnl <= -limits.max_daily_loss: reasons.append("Daily loss limit reached or unavailable")
     if side == "sell" and quantity > held_quantity: reasons.append("Sell quantity exceeds held shares")
     if side == "buy":
         if open_positions >= limits.max_positions and current_symbol_value <= 0:
             reasons.append("Maximum open positions reached")
-        if equity <= 0 or current_symbol_value + quantity * price > equity * limits.max_symbol_allocation:
+        if not math.isfinite(equity) or not math.isfinite(current_symbol_value) or equity <= 0 or current_symbol_value + quantity * price > equity * limits.max_symbol_allocation:
             reasons.append("Per-symbol allocation limit exceeded")
     return RiskDecision(not reasons, tuple(reasons))
