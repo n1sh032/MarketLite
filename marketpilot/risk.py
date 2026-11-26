@@ -24,7 +24,7 @@ def assess_order(*, symbol: str, side: str, quantity: int, price: float,
                  limits: RiskLimits, open_positions: int = 0,
                  current_symbol_value: float = 0.0, equity: float = 10_000.0,
                  daily_pnl: float = 0.0, stale: bool = False,
-                 duplicate: bool = False) -> RiskDecision:
+                 duplicate: bool = False, held_quantity: int = 0) -> RiskDecision:
     symbol, side = symbol.strip().upper(), side.strip().lower()
     reasons: list[str] = []
     if not _SYMBOL.fullmatch(symbol): reasons.append("Invalid symbol")
@@ -37,6 +37,7 @@ def assess_order(*, symbol: str, side: str, quantity: int, price: float,
     if stale: reasons.append("Market data is stale or incomplete")
     if duplicate: reasons.append("Duplicate or conflicting order exists")
     if daily_pnl <= -limits.max_daily_loss: reasons.append("Daily loss limit reached")
+    if side == "sell" and quantity > held_quantity: reasons.append("Sell quantity exceeds held shares")
     if side == "buy":
         if open_positions >= limits.max_positions and current_symbol_value <= 0:
             reasons.append("Maximum open positions reached")
