@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import httpx
+from datetime import datetime, timedelta, timezone
+from .strategy import Bar
 
 PAPER_URL = "https://paper-api.alpaca.markets"
 DATA_URL = "https://data.alpaca.markets"
@@ -53,6 +55,18 @@ class AlpacaPaperBroker:
         if not isinstance(data, list): raise BrokerError("Unexpected orders response")
         return data
 
+    def daily_bars(self, symbol: str, limit: int = 100) -> list[Bar]:
+        end = datetime.now(timezone.utc).date()
+        start = end - timedelta(days=limit * 2)
+        try:
+            response = self.data_client.get(f"/v2/stocks/{symbol}/bars", params={"timeframe":"1Day","start":start.isoformat(),"end":end.isoformat(),"limit":limit,"adjustment":"split","feed":"iex"})
+            response.raise_for_status()
+            values = response.json().get("bars", [])
+            bars = [Bar(symbol.upper(), datetime.fromisoformat(item["t"].replace("Z", "+00:00")), float(item["c"])) for item in values]
+            return [bar for bar in bars if bar.timestamp.date() < end]
+        except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError, ValueError, KeyError):
+            raise BrokerError("Paper market data is unavailable or invalid") from None
+
     def submit_order(self, *, symbol: str, side: str, quantity: int, client_order_id: str) -> dict:
         try:
             response = self.client.post("/v2/orders", json={
@@ -79,6 +93,8 @@ class DemoBroker:
     def account(self) -> dict:
         return {"equity": "100000.00", "cash": "100000.00", "currency": "USD", "status": "DEMO"}
     def positions(self) -> list:
+        return []
+    def daily_bars(self, symbol: str, limit: int = 100) -> list[Bar]:
         return []
     def orders(self) -> list:
         return []
