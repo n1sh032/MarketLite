@@ -62,14 +62,26 @@ class AlpacaPaperBroker:
         # Include today's daily bar only after the regular session close.
         end = market_date + timedelta(days=1) if now_ny.hour >= 16 else market_date
         start = end - timedelta(days=limit * 2)
-        try:
-            response = self.data_client.get(f"/v2/stocks/{symbol}/bars", params={"timeframe":"1Day","start":start.isoformat(),"end":end.isoformat(),"limit":limit,"adjustment":"split","feed":"iex"})
-            response.raise_for_status()
-            values = response.json().get("bars", [])
-            bars = [Bar(symbol.upper(), datetime.fromisoformat(item["t"].replace("Z", "+00:00")), float(item["c"])) for item in values]
-            return [bar for bar in bars if bar.timestamp.date() < end]
-        except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError, ValueError, KeyError):
-            raise BrokerError("Paper market data is unavailable or invalid") from None
+        error = None
+        for attempt in range(3):
+            try:
+                response = self.data_client.get(f"/v2/stocks/{symbol}/bars", params={"timeframe":"1Day","start":start.isoformat(),"end":end.isoformat(),"limit":limit,"adjustment":"split","feed":"iex"})
+                response.raise_for_status()
+                values = response.json().get("bars", [])
+                bars = [Bar(symbol.upper(), datetime.fromisoformat(item["t"].replace("Z", "+00:00")), float(item["c"])) for item in values]
+                return [bar for bar in bars if bar.timestamp.date() < end]
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code < 500 and exc.response.status_code != 429:
+                    raise BrokerError("Paper market data request was rejected") from None
+                error = exc
+            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                error = exc
+            except (ValueError, KeyError, AttributeError, TypeError):
+                raise BrokerError("Paper market data response was invalid") from None
+            if attempt < 2:
+                import time
+                time.sleep(0.2 * (2 ** attempt))
+        raise BrokerError("Paper market data is unavailable") from error
 
     def submit_order(self, *, symbol: str, side: str, quantity: int, client_order_id: str) -> dict:
         try:
