@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 import math
 
 from .strategy import Bar
@@ -30,5 +30,5 @@ def validate_bars(bars: list[Bar], *, max_age_days: int = 5, now: datetime | Non
     dates = [bar.timestamp.date() for bar in bars]
     if len(dates) != len(set(dates)):
         raise ValueError("Duplicate daily bars returned")
-    if any(not bar.complete or bar.close <= 0 for bar in bars):
+    if any(not bar.complete or not math.isfinite(bar.close) or bar.close <= 0 for bar in bars):
         raise ValueError("Bars must be completed with positive closes")
