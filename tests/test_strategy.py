@@ -27,3 +27,15 @@ def test_incomplete_bar_is_ignored():
     values=bars([100]*50)
     values.append(Bar("AAPL",datetime(2025,3,1,tzinfo=timezone.utc),200,False))
     assert moving_average_signal(values).timestamp==values[-2].timestamp
+
+
+def test_crossing_above_emits_buy():
+    signal=moving_average_signal(bars([1,1,1,10]),fast=2,slow=3)
+    assert signal.action=="buy"
+    assert signal.fast_sma > signal.slow_sma
+
+
+def test_crossing_below_emits_sell():
+    signal=moving_average_signal(bars([10,10,10,1]),fast=2,slow=3)
+    assert signal.action=="sell"
+    assert signal.fast_sma < signal.slow_sma
