@@ -108,7 +108,9 @@ async def run_analysis(request: RunRequest):
                     qty = 1
                     position = next((p for p in positions if p.get("symbol") == symbol), None)
                     market_value = abs(float(position.get("market_value", 0))) if position else 0.0
-                    daily_pnl = float(account.get("equity", 0)) - float(account.get("last_equity", account.get("equity", 0)))
+                    if "equity" not in account or "last_equity" not in account:
+                        raise ValueError("Broker account equity is incomplete; refusing paper order")
+                    daily_pnl = float(account["equity"]) - float(account["last_equity"])
                     client_id = f"mp-{symbol}-{signal.timestamp:%Y%m%d}-{signal.action}"
                     duplicate = store.has_order(client_id) or any(o.get("client_order_id") == client_id for o in existing)
                     decision = assess_order(symbol=symbol, side=signal.action, quantity=qty, price=bars[-1].close,
