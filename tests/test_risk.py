@@ -30,3 +30,9 @@ def test_stale_and_duplicate_orders_fail_closed():
 
 def test_daily_loss_blocks_new_order():
     assert not assess(daily_pnl=-1000).approved
+
+
+def test_sell_cannot_exceed_held_quantity():
+    decision=assess(side="sell",quantity=2,held_quantity=1)
+    assert not decision.approved
+    assert "Sell quantity exceeds held shares" in decision.reasons
