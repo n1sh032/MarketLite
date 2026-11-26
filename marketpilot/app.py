@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +15,7 @@ from .config import load_settings
 from .data import demo_bars, validate_bars
 from .risk import RiskLimits, assess_order
 from .storage import Store
+from .scheduler import next_run, run_daily
 from .strategy import moving_average_signal
 
 settings = load_settings()
@@ -36,9 +36,18 @@ async def lifespan(app: FastAPI):
         except BrokerError as exc:
             state["last_error"] = str(exc)
             state["reconciled"] = False
-    yield
-    broker.close()
-    store.close()
+    scheduler_task = asyncio.create_task(run_daily(scheduled_analysis), name="marketpilot-daily-analysis")
+    state["next_scheduled_run"] = next_run().isoformat()
+    try:
+        yield
+    finally:
+        scheduler_task.cancel()
+        try:
+            await scheduler_task
+        except asyncio.CancelledError:
+            pass
+        broker.close()
+        store.close()
 
 
 app = FastAPI(title="MarketPilot", lifespan=lifespan)
@@ -87,7 +96,7 @@ async def run_analysis(request: RunRequest):
                 bars = demo_bars(symbol) if isinstance(broker, DemoBroker) else broker.daily_bars(symbol)
                 validate_bars(bars)
                 signal = moving_average_signal(bars)
-                payload = {**signal.__dict__, "timestamp": signal.timestamp.isoformat(), "data_source": "illustrative demo bars"}
+                payload = {**signal.__dict__, "timestamp": signal.timestamp.isoformat(), "data_source": "illustrative demo bars" if isinstance(broker, DemoBroker) else "Alpaca IEX daily bars"}
                 store.record_signal(payload)
                 item = {**payload, "risk": None, "order": None}
                 if request.submit_paper_orders and signal.action in {"buy", "sell"}:
@@ -123,6 +132,16 @@ async def run_analysis(request: RunRequest):
             state["status"] = "error"; state["last_error"] = str(exc)
             store.audit("analysis_error", {"message":str(exc)})
             raise HTTPException(503, str(exc)) from None
+
+
+async def scheduled_analysis():
+    try:
+        await run_analysis(RunRequest())
+        state["scheduler_error"] = None
+    except HTTPException as exc:
+        state["scheduler_error"] = exc.detail
+        store.audit("scheduler_error", {"message":exc.detail})
+    state["next_scheduled_run"] = next_run().isoformat()
 
 
 @app.post("/api/pause")
