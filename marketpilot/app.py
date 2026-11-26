@@ -146,6 +146,10 @@ async def scheduled_analysis():
     except HTTPException as exc:
         state["scheduler_error"] = exc.detail
         store.audit("scheduler_error", {"message":exc.detail})
+    except Exception as exc:
+        message = f"Scheduled run failed ({type(exc).__name__})"
+        state["scheduler_error"] = message
+        store.audit("scheduler_error", {"message":message})
     state["next_scheduled_run"] = next_run().isoformat()
 
 
