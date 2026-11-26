@@ -30,6 +30,9 @@ class Store:
         self.connection.execute("INSERT INTO orders(client_order_id,symbol,side,quantity,status,broker_order_id,payload) VALUES(?,?,?,?,?,?,?) ON CONFLICT(client_order_id) DO UPDATE SET status=excluded.status, broker_order_id=COALESCE(excluded.broker_order_id,orders.broker_order_id), payload=excluded.payload", (client_order_id,symbol,side,quantity,status,broker_order_id,json.dumps(payload or {})))
         self.connection.commit()
 
+    def has_order(self, client_order_id: str) -> bool:
+        return self.connection.execute("SELECT 1 FROM orders WHERE client_order_id=?", (client_order_id,)).fetchone() is not None
+
     def rows(self, table: str, limit: int = 100) -> list[dict[str, Any]]:
         if table not in {"signals", "orders", "audit"}: raise ValueError("Unsupported table")
         return [dict(row) for row in self.connection.execute(f"SELECT * FROM {table} ORDER BY id DESC LIMIT ?", (limit,))]
