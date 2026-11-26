@@ -73,8 +73,11 @@ def dashboard():
     except BrokerError as exc:
         state["last_error"] = str(exc)
         account, positions, orders = None, [], store.rows("orders")
+    local_orders = store.rows("orders")
+    known = {o.get("client_order_id") for o in orders} if isinstance(orders, list) else set()
+    visible_orders = orders + [o for o in local_orders if o.get("client_order_id") not in known] if isinstance(orders, list) else local_orders
     return {"paper": True, "demo": isinstance(broker, DemoBroker), "demo_label": getattr(broker, "label", None),
-            "account": account, "positions": positions, "signals": store.rows("signals"), "orders": orders if orders else store.rows("orders"),
+            "account": account, "positions": positions, "signals": store.rows("signals"), "orders": visible_orders,
             "audit": store.rows("audit", 30), "symbols": settings.symbols,
             "limits": {"max_quantity": 10, "max_notional": 2000, "max_positions": 5, "max_daily_loss": 1000},
             "state": state}
