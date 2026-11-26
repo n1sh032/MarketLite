@@ -27,7 +27,7 @@ class Store:
 
     def record_order(self, client_order_id: str, symbol: str, side: str, quantity: int,
                      status: str, broker_order_id: str | None = None, payload: dict[str, Any] | None = None) -> None:
-        self.connection.execute("INSERT OR IGNORE INTO orders(client_order_id,symbol,side,quantity,status,broker_order_id,payload) VALUES(?,?,?,?,?,?,?)", (client_order_id,symbol,side,quantity,status,broker_order_id,json.dumps(payload or {})))
+        self.connection.execute("INSERT INTO orders(client_order_id,symbol,side,quantity,status,broker_order_id,payload) VALUES(?,?,?,?,?,?,?) ON CONFLICT(client_order_id) DO UPDATE SET status=excluded.status, broker_order_id=COALESCE(excluded.broker_order_id,orders.broker_order_id), payload=excluded.payload", (client_order_id,symbol,side,quantity,status,broker_order_id,json.dumps(payload or {})))
         self.connection.commit()
 
     def rows(self, table: str, limit: int = 100) -> list[dict[str, Any]]:
