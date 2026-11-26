@@ -8,7 +8,12 @@ async function request(path, body) {
 }
 function esc(value){const node=document.createElement('span');node.textContent=String(value??'');return node.innerHTML;}
 async function refresh(){try{
- const d=await request('/api/dashboard'); $('bot').textContent=d.state.status; $('lastRun').textContent=(d.state.last_run?'Last run '+new Date(d.state.last_run).toLocaleString():'No run yet')+(d.state.next_scheduled_run?' · next '+new Date(d.state.next_scheduled_run).toLocaleString():'');
+ const d=await request('/api/dashboard'); $('bot').textContent=d.state.emergency_stop?'Emergency stop active':d.state.status; $('lastRun').textContent=(d.state.last_run?'Last run '+new Date(d.state.last_run).toLocaleString():'No run yet')+(d.state.next_scheduled_run?' · next '+new Date(d.state.next_scheduled_run).toLocaleString():'');
+ const canSubmit=d.paper_orders_enabled&&!d.demo&&d.state.reconciled&&!d.state.paused&&!d.state.emergency_stop;
+ $('submitOrders').hidden=!canSubmit;
+ $('submitOrders').disabled=d.state.status==='running';
+ $('run').disabled=d.state.paused||d.state.emergency_stop||d.state.status==='running';
+ $('pause').textContent=d.state.paused?'Resume':'Pause'; $('pause').disabled=d.state.emergency_stop;
  $('lastDataRefresh').textContent=d.state.last_data_refresh?'Last data refresh '+new Date(d.state.last_data_refresh).toLocaleString():'Market data not refreshed yet';
  $('brokerHealth').textContent=d.demo?'Demo account · no broker reconciliation needed':d.state.reconciled?'Paper broker reconciled':'Paper broker reconciliation required';
  $('equity').textContent=d.account?fmt(d.account.equity):'Unavailable'; $('cash').textContent=d.account?fmt(d.account.cash):'Unavailable'; $('accountLabel').textContent=d.demo?d.demo_label:'Connected paper account'; $('source').textContent=d.demo?'Illustrative demo':'Alpaca IEX'; $('positionCount').textContent=d.positions.length; $('exposure').textContent='Gross exposure '+fmt(d.exposure);
@@ -20,6 +25,18 @@ async function refresh(){try{
  }catch(e){show(e.message)}}
 function show(message){$('notice').textContent=message;$('notice').dataset.warning='1';}
 $('run').addEventListener('click',async()=>{try{const d=await request('/api/run',{submit_paper_orders:false,confirmed:false});show(`Analysis complete · ${d.signals.length} symbols checked. No orders submitted.`);await refresh()}catch(e){show(e.message)}});
+$('submitOrders').addEventListener('click',async()=>{
+ if(!confirm('Run the strategy and submit eligible 1-share market orders to the reconciled Alpaca paper account? Risk checks still apply. This will not use live trading.'))return;
+ $('submitOrders').disabled=true;
+ try{
+  const d=await request('/api/run',{submit_paper_orders:true,confirmed:true});
+  const sent=d.signals.filter(s=>s.order).length;
+  const rejected=d.signals.filter(s=>s.risk&&!s.risk.approved);
+  const details=rejected.map(s=>`${s.symbol}: ${s.risk.reasons.join(', ')}`).join(' · ');
+  show(`Paper order run complete · ${sent} submitted · ${rejected.length} rejected by risk checks.${details?' '+details:''}`);
+  await refresh();
+ }catch(e){show(e.message);await refresh()}
+});
 $('pause').addEventListener('click',async()=>{try{const d=await request('/api/pause',{});$('pause').textContent=d.paused?'Resume':'Pause';await refresh()}catch(e){show(e.message)}});
 $('stop').addEventListener('click',async()=>{if(!confirm('Emergency stop will prevent future analysis and paper order submissions. Continue?'))return;try{await request('/api/emergency-stop',{});show('Emergency stop is active. Restart the application to clear it.');await refresh()}catch(e){show(e.message)}});
 refresh();setInterval(refresh,30000);

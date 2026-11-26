@@ -108,6 +108,7 @@ def dashboard():
     except (KeyError, TypeError, ValueError):
         exposure = None
     return {"paper": True, "demo": isinstance(broker, DemoBroker), "demo_label": getattr(broker, "label", None),
+            "paper_orders_enabled": settings.paper_orders_enabled,
             "account": account, "positions": positions, "signals": store.signals(), "orders": visible_orders,
             "exposure": exposure,
             "audit": store.rows("audit", 30), "symbols": settings.symbols,
