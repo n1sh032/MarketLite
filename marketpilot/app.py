@@ -84,7 +84,7 @@ async def run_analysis(request: RunRequest):
         results = []
         try:
             for symbol in settings.symbols:
-                bars = demo_bars(symbol)
+                bars = demo_bars(symbol) if isinstance(broker, DemoBroker) else broker.daily_bars(symbol)
                 validate_bars(bars)
                 signal = moving_average_signal(bars)
                 payload = {**signal.__dict__, "timestamp": signal.timestamp.isoformat(), "data_source": "illustrative demo bars"}
