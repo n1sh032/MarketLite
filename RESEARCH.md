@@ -47,3 +47,33 @@ Using 2024 for warm-up, start each sleeve in cash and run the unchanged rules on
 | SPY | 7.92% | 11.52% | 17.95% | -10.39% | -10.04% |
 
 For reproduction, use the same chart endpoint with period1=1704067200 and period2=1767225600. Pass each series from load_prices to evaluate with start=end=2025 and cost_bps=5. Convert annualized growth to period return with (1 + growth) ** (250 / 252) - 1. The eight-month rule reduced drawdown across these three symbols, while its earlier MSFT return advantage reversed.
+
+## One shared paper account in 2025
+
+Start with $100,000 cash, zero interest, zero positions and the default RiskLimits.
+Evaluate AAPL, MSFT and SPY in that order. Size every order at one share and
+reserve position slots for approved buys. Signals use regular closes. Approved
+orders fill at the next session open with five basis points of one-way costs.
+Credit dividends on ex-date to shareholders entering the session. Mark open
+positions at the closing price on December 31. The historical files include 2024
+for warm-up. The first decision is made after the first 2025 close. The monthly
+candidate acts at the end of each month and passive holding buys once.
+
+| Rule | Net P&L | Worst account drawdown | Mean closing exposure | Fills | Rejected |
+|---|---:|---:|---:|---:|---:|
+| Daily 20/50 | $139.51 | -0.086% | 0.817% | 12 | 3 |
+| Eight-month | $125.94 | -0.100% | 0.901% | 7 | 0 |
+| Buy and hold one share each | $196.51 | -0.264% | 1.311% | 3 | 0 |
+
+All three rejections were sells from a flat position. At 20 basis points the
+respective profits were $132.36, $121.63 and $194.64. Closing exposure explains
+why account returns and drawdowns are small. This already-examined year serves
+as an execution comparison. Opening prints approximate fills and the simulation
+assumes complete data, immediate acknowledgments and a single fill per order.
+It accepts split-free files only. MarketPilot's connected paper account uses
+Alpaca IEX data and can receive different prices.
+
+To reproduce, use the download loop above with period1=1704067200,
+period2=1767225600 and append &events=div%2Csplits to the URL. Run
+`python -m marketpilot.desk_replay "$env:TEMP"`. Add `--cost-bps 20` for the
+stress case.
