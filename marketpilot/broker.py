@@ -58,20 +58,27 @@ class AlpacaPaperBroker:
         if not isinstance(data, list): raise BrokerError("Unexpected orders response")
         return data
 
-    def daily_bars(self, symbol: str, limit: int = 100) -> list[Bar]:
-        now_ny = datetime.now(ZoneInfo("America/New_York"))
+    def daily_bars(self, symbol: str, limit: int = 100, *, now: datetime | None = None) -> list[Bar]:
+        ny = ZoneInfo("America/New_York")
+        now_ny = now.astimezone(ny) if now else datetime.now(ny)
         market_date = now_ny.date()
         # Include today's daily bar only after the regular session close.
         end = market_date + timedelta(days=1) if now_ny.hour >= 16 else market_date
-        start = end - timedelta(days=limit * 2)
+        cutoff = datetime.combine(end, datetime.min.time(), ny) - timedelta(microseconds=1)
+        params = {
+            "timeframe": "1Day", "start": (end - timedelta(days=limit * 2)).isoformat(),
+            "end": min(now_ny, cutoff).isoformat(), "limit": limit, "sort": "desc",
+            "adjustment": "split", "feed": "iex",
+        }
         error = None
         for attempt in range(3):
             try:
-                response = self.data_client.get(f"/v2/stocks/{symbol}/bars", params={"timeframe":"1Day","start":start.isoformat(),"end":end.isoformat(),"limit":limit,"adjustment":"split","feed":"iex"})
+                response = self.data_client.get(f"/v2/stocks/{symbol}/bars", params=params)
                 response.raise_for_status()
                 values = response.json().get("bars", [])
                 bars = [Bar(symbol.upper(), datetime.fromisoformat(item["t"].replace("Z", "+00:00")), float(item["c"])) for item in values]
-                return [bar for bar in bars if bar.timestamp.date() < end]
+                completed = [bar for bar in bars if bar.timestamp.astimezone(ny).date() < end]
+                return sorted(completed, key=lambda bar: bar.timestamp)
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code < 500 and exc.response.status_code != 429:
                     raise BrokerError("Paper market data request was rejected") from None
@@ -93,12 +100,18 @@ class AlpacaPaperBroker:
                 "client_order_id": client_order_id,
             })
             response.raise_for_status()
-            return response.json()
-        except (httpx.TimeoutException, httpx.NetworkError):
+            order = response.json()
+            if not isinstance(order, dict) or not order.get("id") or not order.get("status"):
+                raise BrokerError("Incomplete order acknowledgment", uncertain=True)
+            return order
+        except (ValueError, httpx.TransportError):
             # Do not retry: broker acceptance may have happened before the timeout.
             raise BrokerError("Order outcome is uncertain; reconcile by client order ID before retrying", uncertain=True) from None
         except httpx.HTTPStatusError as exc:
-            raise BrokerError(f"Paper broker rejected the order ({exc.response.status_code})") from None
+            status = exc.response.status_code
+            if status >= 500 or status == 408:
+                raise BrokerError(f"Order outcome is uncertain ({status})", uncertain=True) from None
+            raise BrokerError(f"Paper broker rejected the order ({status})") from None
 
     def close(self) -> None:
         self.client.close()
