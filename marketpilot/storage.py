@@ -50,6 +50,16 @@ class Store:
         with self._lock:
             return self.connection.execute("SELECT 1 FROM orders WHERE client_order_id=?", (client_order_id,)).fetchone() is not None
 
+    def pending_buy_symbols(self) -> set[str]:
+        statuses = tuple(TERMINAL_ORDER_STATUSES)
+        marks = ",".join("?" for _ in statuses)
+        with self._lock:
+            rows = self.connection.execute(
+                f"SELECT DISTINCT symbol FROM orders WHERE side='buy' AND LOWER(status) NOT IN ({marks})",
+                statuses,
+            )
+            return {row["symbol"] for row in rows}
+
     def has_open_order(self, symbol: str) -> bool:
         statuses = tuple(TERMINAL_ORDER_STATUSES)
         placeholders = ",".join("?" for _ in statuses)

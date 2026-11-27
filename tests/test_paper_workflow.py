@@ -117,3 +117,11 @@ def test_browser_controls_require_local_json(paper):
             assert dashboard["paper"]
             assert dashboard["exposure"] == 0
     asyncio.run(scenario())
+
+
+def test_pending_buy_reserves_last_position_slot(paper, monkeypatch):
+    monkeypatch.setattr(desk, "risk_limits", replace(desk.risk_limits, max_positions=1))
+    desk.store.record_order("unknown-msft", "MSFT", "buy", 1, "submitting")
+    signal = asyncio.run(run())["signals"][0]
+    assert "Maximum open positions reached" in signal["risk"]["reasons"]
+    assert paper.submissions == 0

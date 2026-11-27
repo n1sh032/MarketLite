@@ -178,14 +178,21 @@ async def run_analysis(request: RunRequest):
                         raise ValueError("Broker account equity is incomplete; refusing paper order")
                     daily_pnl = float(account["equity"]) - float(account["last_equity"])
                     client_id = f"mp-{symbol}-{signal.timestamp:%Y%m%d}-{signal.action}"
+                    occupied = {p["symbol"] for p in positions} | store.pending_buy_symbols()
+                    occupied.update(
+                        order["symbol"] for order in existing
+                        if order.get("side") == "buy"
+                        and order.get("status") not in TERMINAL_ORDER_STATUSES
+                    )
                     active_broker_order = any(
                         str(order.get("symbol", "")).upper() == symbol
                         and str(order.get("status", "unknown")).lower() not in TERMINAL_ORDER_STATUSES
                         for order in existing
                     )
-                    duplicate = store.has_order(client_id) or store.has_open_order(symbol) or active_broker_order
+                    duplicate = (store.has_order(client_id) or store.has_open_order(symbol) or active_broker_order
+                                 or any(o.get("client_order_id") == client_id for o in existing))
                     decision = assess_order(symbol=symbol, side=signal.action, quantity=qty, price=bars[-1].close,
-                        limits=risk_limits, open_positions=len(positions), current_symbol_value=market_value,
+                        limits=risk_limits, open_positions=len(occupied), current_symbol_value=market_value,
                         equity=float(account["equity"]), daily_pnl=daily_pnl, duplicate=duplicate,
                         held_quantity=int(float(position.get("qty", 0))) if position else 0)
                     item["risk"] = {"approved": decision.approved, "reasons": decision.reasons}
