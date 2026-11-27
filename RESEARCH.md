@@ -35,3 +35,15 @@ foreach ($symbol in 'AAPL', 'MSFT', 'SPY') {
 }
 python -m marketpilot.research $env:TEMP
 ```
+
+## Frozen-rule check on 2025
+
+Using 2024 for warm-up, start each sleeve in cash and run the unchanged rules on the 250 sessions from January 2 through December 31, 2025. Apply the same delayed close execution and five basis points per position change. Returns below are cumulative for the calendar year.
+
+| Symbol | 20/50 return | Eight-month return | Hold return | 20/50 max drawdown | Eight-month max drawdown |
+|---|---:|---:|---:|---:|---:|
+| AAPL | 11.72% | 8.38% | 11.93% | -17.01% | -15.14% |
+| MSFT | 6.10% | 2.98% | 16.33% | -14.28% | -12.74% |
+| SPY | 7.92% | 11.52% | 17.95% | -10.39% | -10.04% |
+
+For reproduction, use the same chart endpoint with period1=1704067200 and period2=1767225600. Pass each series from load_prices to evaluate with start=end=2025 and cost_bps=5. Convert annualized growth to period return with (1 + growth) ** (250 / 252) - 1. The eight-month rule reduced drawdown across these three symbols, while its earlier MSFT return advantage reversed.
