@@ -121,20 +121,25 @@ def dashboard():
             "state": state}
 
 
-@app.post("/api/run")
-async def run_analysis(request: RunRequest):
+def check_run_allowed(request: RunRequest):
     if state["paused"] or state["emergency_stop"]:
         raise HTTPException(409, "Analysis is paused or emergency stop is active")
     if request.submit_paper_orders and (not request.confirmed or not settings.paper_orders_enabled):
         raise HTTPException(403, "Paper orders require explicit confirmation and MARKETPILOT_PAPER_ORDERS_ENABLED=true")
     if request.submit_paper_orders and (isinstance(broker, DemoBroker) or not state["reconciled"]):
         raise HTTPException(503, "Paper broker is not reconciled; order submission is disabled")
+
+
+@app.post("/api/run")
+async def run_analysis(request: RunRequest):
     async with run_lock:
+        check_run_allowed(request)
         state["status"] = "running"
         state["last_error"] = None
         results = []
         try:
             for symbol in settings.symbols:
+                check_run_allowed(request)
                 bars = demo_bars(symbol) if isinstance(broker, DemoBroker) else await asyncio.to_thread(broker.daily_bars, symbol)
                 validate_bars(bars, max_age_days=settings.max_data_age_days)
                 signal = moving_average_signal(bars)
@@ -165,6 +170,7 @@ async def run_analysis(request: RunRequest):
                     item["risk"] = {"approved": decision.approved, "reasons": decision.reasons}
                     store.audit("risk_decision", {"symbol":symbol,"approved":decision.approved,"reasons":decision.reasons})
                     if decision.approved:
+                        check_run_allowed(request)
                         store.record_order(client_id,symbol,signal.action,qty,"submitting")
                         try:
                             order = await asyncio.to_thread(
@@ -184,6 +190,9 @@ async def run_analysis(request: RunRequest):
             state["status"] = "paused" if state["paused"] else "stopped"
             store.audit("analysis_completed", {"count":len(results)})
             return {"signals":results}
+        except HTTPException:
+            state["status"] = "paused" if state["paused"] else "stopped"
+            raise
         except (ValueError, BrokerError) as exc:
             state["status"] = "error"; state["last_error"] = str(exc)
             store.audit("analysis_error", {"message":str(exc)})
@@ -205,7 +214,7 @@ async def scheduled_analysis():
 
 
 @app.post("/api/pause")
-def pause():
+async def pause():
     state["paused"] = not state["paused"]
     state["status"] = "paused" if state["paused"] else "stopped"
     store.audit("pause_changed", {"paused":state["paused"]})
@@ -213,7 +222,7 @@ def pause():
 
 
 @app.post("/api/emergency-stop")
-def emergency_stop():
+async def emergency_stop():
     state["emergency_stop"] = True; state["status"] = "stopped"
     store.audit("emergency_stop", {"active":True})
     return state
