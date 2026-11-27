@@ -98,3 +98,22 @@ def test_restart_never_resubmits(paper, tmp_path, outcome, initial):
     result = asyncio.run(run())
     assert not result["signals"][0]["risk"]["approved"]
     assert paper.submissions == 1
+
+
+def test_browser_controls_require_local_json(paper):
+    import httpx
+
+    async def scenario():
+        transport = httpx.ASGITransport(app=desk.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
+            foreign = await client.post("/api/pause", json={}, headers={"Origin": "https://example.org"})
+            assert foreign.status_code == 403
+            form = await client.post("/api/pause", data={"toggle": "1"})
+            assert form.status_code == 415
+            assert not desk.state["paused"]
+            local = await client.post("/api/pause", json={}, headers={"Origin": "http://localhost"})
+            assert local.json()["paused"]
+            dashboard = (await client.get("/api/dashboard")).json()
+            assert dashboard["paper"]
+            assert dashboard["exposure"] == 0
+    asyncio.run(scenario())

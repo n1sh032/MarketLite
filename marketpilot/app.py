@@ -1,19 +1,20 @@
 from __future__ import annotations
 
 import asyncio
-import math
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .broker import AlpacaPaperBroker, BrokerError, DemoBroker
 from .config import load_settings
 from .data import demo_bars, validate_bars
+from .portfolio import gross_exposure
 from .risk import RiskLimits, assess_order
 from .storage import Store, TERMINAL_ORDER_STATUSES
 from .scheduler import next_run, run_daily
@@ -57,6 +58,14 @@ def reconcile_paper_state():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    store.audit("paper_trading_started", {
+        "mode": "Paper Trading", "demo": isinstance(broker, DemoBroker),
+        "symbols": settings.symbols, "paper_orders_enabled": settings.paper_orders_enabled,
+        "max_quantity": risk_limits.max_quantity, "max_notional": risk_limits.max_notional,
+        "max_positions": risk_limits.max_positions, "max_daily_loss": risk_limits.max_daily_loss,
+        "max_symbol_allocation": risk_limits.max_symbol_allocation,
+        "max_data_age_days": settings.max_data_age_days,
+    })
     if not isinstance(broker, DemoBroker):
         try:
             reconcile_paper_state()
@@ -81,6 +90,20 @@ app = FastAPI(title="MarketPilot", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
 
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])
+
+
+@app.middleware("http")
+async def protect_browser_controls(request: Request, call_next):
+    if request.method == "POST":
+        origin = request.headers.get("origin")
+        if origin and origin != str(request.base_url).rstrip("/"):
+            return JSONResponse({"detail": "Open controls from the local dashboard"}, status_code=403)
+        if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
+            return JSONResponse({"detail": "Controls require JSON"}, status_code=415)
+    return await call_next(request)
+
+
 class RunRequest(BaseModel):
     submit_paper_orders: bool = False
     confirmed: bool = False
@@ -102,11 +125,9 @@ def dashboard():
     local_orders = store.rows("orders")
     known = {o.get("client_order_id") for o in orders} if isinstance(orders, list) else set()
     visible_orders = orders + [o for o in local_orders if o.get("client_order_id") not in known] if isinstance(orders, list) else local_orders
-    try:
-        market_values = [float(position["market_value"]) for position in positions]
-        exposure = sum(abs(value) for value in market_values) if all(math.isfinite(value) for value in market_values) else None
-    except (KeyError, TypeError, ValueError):
-        exposure = None
+    exposure = gross_exposure(positions) if account is not None else None
+    if account is not None:
+        account = {key: account.get(key) for key in ("equity", "cash", "currency", "status")}
     return {"paper": True, "demo": isinstance(broker, DemoBroker), "demo_label": getattr(broker, "label", None),
             "paper_orders_enabled": settings.paper_orders_enabled,
             "account": account, "positions": positions, "signals": store.signals(), "orders": visible_orders,

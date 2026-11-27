@@ -40,6 +40,8 @@ Configuration lives in the ignored local `.env` file or process environment. `MA
 - `strategy.py`: pure moving-average signal calculation
 - `risk.py`: independent order approval decision
 - `broker.py`: demo and fixed-origin Alpaca paper adapters
+- `portfolio.py`: gross exposure from broker position values
+- `scheduler.py`: weekday scheduling in New York time
 - `storage.py`: SQLite signals, order intents, broker reconciliation, and audit events
 - `app.py`: FastAPI endpoints, reconciliation, and lifecycle
 - `static/`: responsive local dashboard
@@ -47,4 +49,21 @@ Configuration lives in the ignored local `.env` file or process environment. `MA
 
 ## Current limits
 
-The dashboard uses polling rather than a streaming feed. An in-process scheduler runs analysis at 16:15 America/New_York on weekdays; it does not submit orders. It does not yet load an exchange holiday calendar, so a holiday run may reuse the latest available completed bar. You can also use Run Analysis manually. The initial version supports daily bars and a small configured universe. Account and positions are refreshed from Alpaca when the dashboard loads; broker responses refresh any matching local order intents. No account identifiers or secrets are displayed or persisted. The automated suite passed locally with 24 tests; live Alpaca behavior has not been verified. Before enabling paper orders, inspect the paper account and API permissions and validate reconciliation against that paper account. There is no live trading capability.
+The dashboard uses polling rather than a streaming feed. An in-process scheduler runs analysis at 16:15 America/New_York on weekdays; it does not submit orders. It does not yet load an exchange holiday calendar, so a holiday run may reuse the latest available completed bar. You can also use Run Analysis manually. The initial version supports daily bars and a small configured universe. Account and positions are refreshed from Alpaca when the dashboard loads; broker responses refresh any matching local order intents. No account identifiers or secrets are displayed or persisted. Workflow tests use a simulated broker. They cover interruption during a portfolio read, broker rejection, a lost acknowledgment, and recovery from a reopened database. Before enabling paper orders, inspect the paper account and API permissions and validate reconciliation against that paper account. There is no live trading capability.
+
+
+## Troubleshooting
+
+Start one Uvicorn worker on localhost. Each process owns a scheduler and run lock.
+SQLite creates its tables on first startup. Use a separate database for a different
+paper account or for switching between demo and paper research.
+
+If a run reports stale or missing prices, check the input date, IEX data permissions,
+and the configured symbols. On holidays the latest completed close may be from the
+previous trading day. The prototype does not use an exchange holiday calendar.
+
+After an uncertain submission, inspect the order by client order ID in the paper
+broker and refresh the dashboard. Reconciliation checks the latest 100 broker
+orders. An unmatched local intent continues to block new orders for that symbol.
+Emergency stop prevents further dispatches. Orders already dispatched remain at
+the broker. Restarting the single worker clears the stop.
