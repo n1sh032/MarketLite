@@ -53,6 +53,10 @@ def replay(series, year, rule="20/50", *, capital=100000, cost_bps=5, limits=Non
     cash = equity = peak = capital
     pnl = drawdown = fees = dividends = 0.
     holdings = dict.fromkeys(symbols, 0)
+    share_sessions = Counter()
+    passive_gain = Counter()
+    gross_gain = Counter()
+    measured_sessions = 0
     pending = {}
     months = {s: [] for s in symbols}
     rejected = Counter()
@@ -84,6 +88,20 @@ def replay(series, year, rule="20/50", *, capital=100000, cost_bps=5, limits=Non
                 cash -= delta * row.opening + fee
                 fees += fee
                 fills += 1
+        # Use post-fill holdings for each open-to-open interval. A dividend
+        # at the next open belongs to the shares carried into that session.
+        if exposure:  # The first eligible fill is on the second session.
+            measured_sessions += 1
+            for symbol, quantity in holdings.items():
+                row = series[symbol][i]
+                if i + 1 < len(dates) and dates[i + 1].year == year:
+                    following = series[symbol][i + 1]
+                    change = following.opening - row.opening + following.dividend
+                else:
+                    change = row.bar.close - row.opening
+                share_sessions[symbol] += quantity
+                passive_gain[symbol] += change
+                gross_gain[symbol] += quantity * change
         pending.clear()
         invested = sum(holdings[s]*series[s][i].bar.close for s in symbols)
         equity = cash + invested
@@ -117,7 +135,13 @@ def replay(series, year, rule="20/50", *, capital=100000, cost_bps=5, limits=Non
                     occupied.add(s)
             else:
                 rejected.update(decision.reasons)
-    return dict(equity=equity, cash=cash, holdings=holdings, return_pct=100*(equity/capital-1),
+    attribution = {}
+    for symbol in symbols:
+        mean_shares = share_sessions[symbol] / measured_sessions if measured_sessions else 0
+        holding_gain = mean_shares * passive_gain[symbol]
+        attribution[symbol] = dict(mean_shares=mean_shares, holding_gain=holding_gain,
+                                   timing_gain=gross_gain[symbol] - holding_gain)
+    return dict(attribution=attribution, equity=equity, cash=cash, holdings=holdings, return_pct=100*(equity/capital-1),
                 drawdown_pct=100*drawdown, average_exposure_pct=100*sum(exposure)/len(exposure),
                 fills=fills, fees=fees, dividends=dividends, rejection_reasons=dict(rejected))
 

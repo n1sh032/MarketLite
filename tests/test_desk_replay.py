@@ -30,3 +30,10 @@ def test_fill_gap_cannot_overdraw_cash():
     assert result["cash"] == 15
     assert result["fills"] == 0
     assert result["rejection_reasons"] == {"Insufficient cash at fill": 1}
+
+
+def test_passive_timing_is_zero_and_gains_reconcile_after_fees():
+    result = replay({"SPY": sessions("SPY")}, 2025, "hold", capital=1000, cost_bps=10)
+    gains = result["attribution"]["SPY"]
+    assert gains == {"mean_shares": 1, "holding_gain": 6, "timing_gain": 0}
+    assert gains["holding_gain"] - result["fees"] == pytest.approx(result["equity"] - 1000)
