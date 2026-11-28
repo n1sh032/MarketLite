@@ -101,3 +101,22 @@ sample, fixed one-share orders and zero interest on idle cash.
 To reproduce, use the preceding three-symbol download with period1=1672531200
 and period2=1767225600, including dividends and splits. Run
 `python -m marketpilot.exposure_study "$env:TEMP" --year 2025`.
+
+## Timing contribution in the one-share replay
+
+For each symbol, compare actual gross profit with the profit from holding its
+realized average share count throughout the evaluation. Measure intervals from
+the first eligible opening fill to the final close. Shares carried overnight
+receive the next session's dividend. The benchmark uses hindsight to explain
+P&L and is independent of signal generation. Timing is the difference in gross
+profit. Subtract simulated costs separately to recover net account P&L.
+
+| 2025 rule | Average holdings contribution | Timing contribution | Costs | Net profit |
+|---|---:|---:|---:|---:|
+| Daily 20/50 | $119.17 | $22.72 | $2.38 | $139.51 |
+| Eight-month | $130.78 | -$3.40 | $1.44 | $125.94 |
+| One share each | $197.14 | $0.00 | $0.63 | $196.51 |
+
+Daily crossover timing contributed $18.54 on AAPL, $11.36 on MSFT and
+-$7.18 on SPY. This measures one previously examined period. The desk replay
+command above includes per-symbol attribution in its output.
