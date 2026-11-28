@@ -77,3 +77,27 @@ To reproduce, use the download loop above with period1=1704067200,
 period2=1767225600 and append &events=div%2Csplits to the URL. Run
 `python -m marketpilot.desk_replay "$env:TEMP"`. Add `--cost-bps 20` for the
 stress case.
+
+## Prior-year exposure matching
+
+Using 2023 for warm-up, replay each strategy in 2024 at one share per order and
+$100,000 starting capital. Set the common target to the lowest mean invested
+percentage among the three. Add idle cash to each higher-exposure account until
+its 2024 mean matches that target. Freeze each starting balance before restarting
+flat in January 2025. This compares account returns at a common historical
+exposure target. The strategies still decide independently when to invest.
+
+| Rule | Starting balance | 2024 mean exposure | 2025 mean exposure | 2025 return | Worst 2025 drawdown |
+|---|---:|---:|---:|---:|---:|
+| Daily 20/50 | $100,000 | 0.5880% | 0.8172% | 0.1395% | -0.0861% |
+| Eight-month | $167,944 | 0.5880% | 0.5367% | 0.0750% | -0.0596% |
+| Buy and hold | $197,935 | 0.5880% | 0.6624% | 0.0993% | -0.1332% |
+
+The daily crossover led in account return while the monthly rule had the smallest
+drawdown. Realized exposure diverged in 2025. The ordering therefore combines
+timing and exposure effects. These results apply to the already examined 2025
+sample, fixed one-share orders and zero interest on idle cash.
+
+To reproduce, use the preceding three-symbol download with period1=1672531200
+and period2=1767225600, including dividends and splits. Run
+`python -m marketpilot.exposure_study "$env:TEMP" --year 2025`.
